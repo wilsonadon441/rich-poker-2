@@ -164,3 +164,18 @@ Validated current production-like validator profile:
 ## License
 
 MIT — see [`LICENSE`](LICENSE).
+
+## Model variant: rich-poker-2 "forest"
+
+This deployment runs the **forest** variant: a forest-diverse stacked
+ensemble (LightGBM + RandomForest + ExtraTrees + scaled logistic regression,
+logistic meta-learner) with hand-ngram side features over an extended
+chunk-feature space — q25/q75 aggregates for every per-hand statistic plus a
+chunk-level showdown-rate signal — calibrated holdout-first against the
+validator reward. See `poker44_ml/variant.py` for the exact configuration and
+`training/train_variant.py` for the full training pipeline.
+
+The model is retrained automatically every day on newly released benchmark
+data (`scripts/daily_retrain.sh`, scheduled via the pm2 app in
+`scripts/miner/ecosystem.config.cjs`); a candidate is only deployed when it
+beats the live artifact on the newest holdout dates.

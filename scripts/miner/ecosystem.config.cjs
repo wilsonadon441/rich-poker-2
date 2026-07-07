@@ -1,70 +1,100 @@
 /**
- * PM2 ecosystem config for Poker44 UID 198 (justice-coldkey / justice-hotkey-poker44).
+ * PM2 ecosystem for a rich-poker miner.
+ *
+ * All runtime identity (wallet, hotkey, port, repo metadata, pm2 name, retrain
+ * schedule) comes from the repo's .env file — nothing is hardcoded here.
  *
  * Usage:
  *   pm2 start scripts/miner/ecosystem.config.cjs
  *   pm2 save
- *
- * After a git push, update POKER44_MODEL_REPO_COMMIT to match `git rev-parse HEAD`
- * before R6 opens so the manifest matches the published repo.
  */
+const fs = require("fs");
+const path = require("path");
+
+const REPO_ROOT = path.resolve(__dirname, "..", "..");
+
+function parseEnvFile(file) {
+  const out = {};
+  if (!fs.existsSync(file)) return out;
+  for (const rawLine of fs.readFileSync(file, "utf8").split("\n")) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    let value = line.slice(eq + 1).trim();
+    if (!value.startsWith('"') && !value.startsWith("'")) {
+      const comment = value.indexOf(" #");
+      if (comment >= 0) value = value.slice(0, comment).trim();
+    }
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
+const env = parseEnvFile(path.join(REPO_ROOT, ".env"));
+const name = env.POKER44_PM2_NAME || path.basename(REPO_ROOT);
+const python = path.join(REPO_ROOT, "miner_env", "bin", "python");
+
+const minerArgs = [
+  path.join(REPO_ROOT, "neurons", "miner.py"),
+  "--netuid", env.POKER44_NETUID || "126",
+  "--wallet.name", env.POKER44_WALLET_NAME || "default",
+  "--wallet.hotkey", env.POKER44_WALLET_HOTKEY || "default",
+  "--subtensor.network", env.POKER44_NETWORK || "finney",
+  "--axon.port", env.POKER44_AXON_PORT || "8091",
+  "--logging.debug",
+];
+const allowlist = (env.POKER44_ALLOWED_VALIDATOR_HOTKEYS || "")
+  .split(/\s+/)
+  .filter(Boolean);
+if (allowlist.length) {
+  minerArgs.push("--blacklist.allowed_validator_hotkeys", ...allowlist);
+} else {
+  minerArgs.push("--blacklist.force_validator_permit");
+}
+
+// Pass through every non-empty POKER44_* var. Empty values are dropped so the
+// miner's fallbacks still apply (e.g. empty POKER44_MODEL_REPO_COMMIT resolves
+// to `git rev-parse HEAD` at startup, keeping the manifest commit accurate).
+const passthrough = {};
+for (const [key, value] of Object.entries(env)) {
+  if (key.startsWith("POKER44_") && value !== "") passthrough[key] = value;
+}
+
 module.exports = {
   apps: [
     {
-      name: "poker44-miner",
-      cwd: "/root/Poker44-top-miner",
-      script: "./miner_env/bin/python",
-      args: [
-        "./neurons/miner.py",
-        "--netuid",
-        "126",
-        "--wallet.name",
-        "justice-coldkey",
-        "--wallet.hotkey",
-        "justice-hotkey-poker44",
-        "--subtensor.network",
-        "finney",
-        "--axon.port",
-        "8091",
-        "--logging.debug",
-        "--blacklist.allowed_validator_hotkeys",
-        "5E2LP6EnZ54m3wS8s1yPvD5c3xo71kQroBw7aUVK32TKeZ5u",
-        "5FxQcdsCXcNjWowQ63Y2oeMhN3JRQksejV3aHRr4XmtknM2k",
-        "5FZD47WhA1UaVicYAr7pGnWb2YQLMD7uViipDYN2r1AJ5ggD",
-        "5EP9fmtknrTnDhQmLRY9ciFYoM7YZM8rPWvQ9J7yywEsn126",
-        "5HWe7T96SrY4vRvaLmSoriUJ2CGvhRc559U1vZ1pNPuyz2VA",
-        "5CsvRJXuR955WojnGMdok1hbhffZyB4N5ocrv82f3p5A2zVp",
-        "5Hftk9jrMGSJtKBPWkkAkU53FUSr2BqHGPCThg7mbob3hEq1",
-        "5HmkWGB5PVzKCNLB4QxWWHFVEHPAbKKxGyoXW7Evs38gs126",
-        "5G9hfkx9wGB1CLMT9WXkpHSAiYzjZb5o1Boyq4KAdDhjwrc5",
-        "5FLoWCDovMPeH3Gv4syQSZ8TuKcMv6N27g8diDU8zJSeRv8m",
-        "5DqrUa2z6E9taJdY8FGiPCrtCswsEjHjPbVo5xcTw2GqvKZm",
-      ],
+      name,
+      cwd: REPO_ROOT,
+      script: python,
+      args: minerArgs,
       interpreter: "none",
+      autorestart: true,
+      max_restarts: 50,
+      restart_delay: 15000,
+      kill_timeout: 10000,
       env: {
-        PYTHONPATH: "/root/Poker44-top-miner",
-        POKER44_MODEL_PATH: "/root/Poker44-top-miner/models/poker44_v124_deploy.joblib",
-        POKER44_MODEL_NAME: "poker44-v124-hybrid",
-        POKER44_MODEL_VERSION: "1.24.0",
-        POKER44_MODEL_SHA256:
-          "3cf1c3792ae7e2e0f1904e6d83164ea1e71add6f0edb132c84454b84ebb396b5",
-        POKER44_MODEL_ARTIFACT_SHA256:
-          "3cf1c3792ae7e2e0f1904e6d83164ea1e71add6f0edb132c84454b84ebb396b5",
-        POKER44_MODEL_REPO_URL:
-          "https://github.com/Yaroslav98214/poker44-handngram-miner.git",
-        POKER44_MODEL_REPO_COMMIT:
-          "40eefd99fd4898ef335e5f43054aad083e40cc7d",
-        POKER44_MODEL_OPEN_SOURCE: "true",
-        POKER44_MODEL_FRAMEWORK: "hybrid-lgb-xgb-et-hgram-v22-apfirst",
-        POKER44_MODEL_TRAINING_DATA_SOURCES: "released_training_benchmark_v113",
-        POKER44_MODEL_TRAINING_DATA_STATEMENT:
-          "Trained on public Poker44 benchmark v1.13 through 2026-07-06 with holdout-first calibration for v2.2 competition.",
-        POKER44_MODEL_PRIVATE_DATA_ATTESTATION:
-          "No private data used. Training uses only the public benchmark API corpus.",
-        POKER44_MODEL_DATA_ATTESTATION:
-          "No private data used. Training uses only the public benchmark API corpus.",
-        POKER44_LOG_SCORE_ARRAYS: "1",
-        POKER44_LOG_SCORE_COMPONENTS: "1",
+        PYTHONPATH: REPO_ROOT,
+        ...passthrough,
+      },
+    },
+    {
+      // One-shot daily retrain job re-fired by pm2 on the .env cron schedule.
+      name: `${name}-retrain`,
+      cwd: REPO_ROOT,
+      script: path.join(REPO_ROOT, "scripts", "daily_retrain.sh"),
+      interpreter: "bash",
+      autorestart: false,
+      cron_restart: env.POKER44_RETRAIN_CRON || "10 1 * * *",
+      env: {
+        PYTHONPATH: REPO_ROOT,
       },
     },
   ],

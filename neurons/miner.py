@@ -1,4 +1,8 @@
-"""Poker44 miner with local stacked-model inference and transparent model manifests."""
+"""Poker44 miner — rich-poker-2 "forest" variant.
+
+Runs local stacked-model inference (forest-diverse ensemble with extended
+q25/q75 + showdown-rate features) and publishes a transparent model manifest.
+"""
 
 import hashlib
 import logging as stdlogging
@@ -19,6 +23,7 @@ from poker44.utils.model_manifest import (
     manifest_digest,
 )
 from poker44.validator.synapse import DetectionSynapse
+from poker44_ml.variant import VARIANT
 
 try:
     from poker44_ml.inference import Poker44Model
@@ -53,11 +58,13 @@ class _ScannerNoiseFilter(stdlogging.Filter):
 
 class Miner(BaseMinerNeuron):
     """
-    Reference miner for the current provider-runtime challenge path.
+    rich-poker-2 "forest" variant miner.
 
-    This miner scores chunks directly from the incoming hand payloads without
-    any local training artifacts. The heuristic emphasizes chunk-level behavior
-    consistency, passive regularity, street progression, and showdown tendency.
+    Scores chunks with a locally trained forest-diverse stacked ensemble over
+    an extended q25/q75 + showdown-rate feature space (see
+    poker44_ml.variant.VARIANT). When no artifact is available it falls back
+    to a chunk-level heuristic that emphasizes showdown tendency and
+    action-type diversity.
     """
 
     def __init__(self, config=None):
@@ -82,7 +89,7 @@ class Miner(BaseMinerNeuron):
         self.model_path = Path(
             os.getenv(
                 "POKER44_MODEL_PATH",
-                str(repo_root / "models" / "poker44_stacked_robust.joblib"),
+                str(repo_root / "models" / "rich_poker_2_deploy.joblib"),
             )
         )
         self._artifact_identity = artifact_model_identity(self.model_path)
@@ -98,7 +105,9 @@ class Miner(BaseMinerNeuron):
                     "Continuing with heuristic backend."
                 )
 
-        bt.logging.info(f"🤖 Poker44 Miner started with backend={self.backend}")
+        bt.logging.info(
+            f"🤖 Poker44 miner started | variant={VARIANT['key']} backend={self.backend}"
+        )
         runtime_commit = (
             os.getenv("POKER44_MODEL_REPO_COMMIT", "").strip()
             or self._repo_head(repo_root)
@@ -124,6 +133,7 @@ class Miner(BaseMinerNeuron):
         )
         supervised_notes = (
             "Supervised benchmark model trained on released evaluation chunks"
+            f"; variant={VARIANT['key']} ({VARIANT['framework']})"
         )
         artifact_filename = str(
             model_metadata.get("artifact_filename", "")
@@ -181,7 +191,7 @@ class Miner(BaseMinerNeuron):
         manifest_notes = (
             supervised_notes
             if self.predictor is not None
-            else "Challenge-aligned heuristic miner that scores chunk-level "
+            else f"{VARIANT['name']} heuristic fallback: scores chunk-level "
             "behavioral regularity and action patterns."
         )
         if self.predictor is not None and (
@@ -204,9 +214,9 @@ class Miner(BaseMinerNeuron):
                 "model_name": (
                     str(model_metadata.get("model_name", "")).strip()
                     or self._artifact_identity.get("model_name", "")
-                    or "poker44_stacked_robust"
+                    or VARIANT["name"]
                     if self.predictor is not None
-                    else "poker44-reference-heuristic"
+                    else f"{VARIANT['name']}-heuristic"
                 ),
                 "model_version": (
                     str(model_metadata.get("model_version", "")).strip()
@@ -292,6 +302,7 @@ class Miner(BaseMinerNeuron):
             "poker44_ml/sequence_model.py",
             "poker44_ml/stacked.py",
             "poker44_ml/calibration.py",
+            "poker44_ml/variant.py",
             "poker44/validator/payload_view.py",
         ):
             candidate = repo_root / relative
@@ -499,17 +510,19 @@ class Miner(BaseMinerNeuron):
             [kind for kind in ("call", "check", "bet", "raise", "fold") if action_counts.get(kind, 0)]
         ) / 5.0
 
+        # forest-variant fallback: emphasize showdown tendency and
+        # action-type diversity, the strongest forest-split signals here.
         score = 0.0
-        score += 0.24 * cls._clamp01(street_depth)
-        score += 0.16 * cls._clamp01(showdown_flag)
-        score += 0.18 * cls._clamp01(call_ratio / 0.32)
-        score += 0.10 * cls._clamp01(check_ratio / 0.28)
+        score += 0.22 * cls._clamp01(street_depth)
+        score += 0.18 * cls._clamp01(showdown_flag)
+        score += 0.16 * cls._clamp01(call_ratio / 0.32)
+        score += 0.11 * cls._clamp01(check_ratio / 0.26)
         score += 0.08 * cls._clamp01(player_count_signal)
-        score += 0.10 * cls._clamp01(action_diversity / 0.60)
-        score -= 0.14 * cls._clamp01(fold_ratio / 0.55)
-        score -= 0.12 * cls._clamp01(raise_ratio / 0.22)
-        score -= 0.06 * cls._clamp01(bet_ratio / 0.18)
-        score -= 0.08 * cls._clamp01(aggression_ratio / 0.55)
+        score += 0.12 * cls._clamp01(action_diversity / 0.55)
+        score -= 0.13 * cls._clamp01(fold_ratio / 0.55)
+        score -= 0.12 * cls._clamp01(raise_ratio / 0.24)
+        score -= 0.07 * cls._clamp01(bet_ratio / 0.18)
+        score -= 0.07 * cls._clamp01(aggression_ratio / 0.50)
 
         features = {
             "call_ratio": call_ratio,

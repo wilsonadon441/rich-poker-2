@@ -95,7 +95,7 @@ def _amount_bucket(value: float) -> str:
         return "m"
     if value <= 5.0:
         return "l"
-        return "xl"
+    return "xl"
 
 
 def _hand_features(hand: dict[str, Any]) -> dict[str, float]:
@@ -229,6 +229,8 @@ def _aggregate_feature(prefix: str, values: list[float], out: dict[str, float]) 
     out[f"{prefix}_q10"] = _quantile(values, 0.1)
     out[f"{prefix}_q50"] = _quantile(values, 0.5)
     out[f"{prefix}_q90"] = _quantile(values, 0.9)
+    out[f"{prefix}_q25"] = _quantile(values, 0.25)
+    out[f"{prefix}_q75"] = _quantile(values, 0.75)
 
 
 def chunk_features(chunk: list[dict[str, Any]]) -> dict[str, float]:
@@ -252,6 +254,7 @@ def chunk_features(chunk: list[dict[str, Any]]) -> dict[str, float]:
     low_action_entropy = 0
     high_actor_entropy = 0
     long_action_hand = 0
+    showdown_hands = 0
 
     for hand, feats in zip(chunk, per_hand):
         actions = hand.get("actions") or []
@@ -275,6 +278,7 @@ def chunk_features(chunk: list[dict[str, Any]]) -> dict[str, float]:
         low_action_entropy += int(feats["schema_action_entropy"] <= 0.35)
         high_actor_entropy += int(feats["schema_actor_entropy"] >= 0.75)
         long_action_hand += int(feats["schema_action_count"] >= 12.0)
+        showdown_hands += int(bool((hand.get("outcome") or {}).get("showdown")))
 
     n = float(len(chunk))
     out["schema_action_signature_top_share"] = _safe_div(max(Counter(action_signatures).values()), n)
@@ -289,6 +293,7 @@ def chunk_features(chunk: list[dict[str, Any]]) -> dict[str, float]:
     out["schema_amount_bucket_signature_unique_share"] = _safe_div(
         len(set(amount_bucket_signatures)), n
     )
+    out["schema_showdown_rate"] = _safe_div(showdown_hands, n)
     out["schema_high_aggression_hand_rate"] = _safe_div(high_aggressive, n)
     out["schema_low_action_entropy_hand_rate"] = _safe_div(low_action_entropy, n)
     out["schema_high_actor_entropy_hand_rate"] = _safe_div(high_actor_entropy, n)
