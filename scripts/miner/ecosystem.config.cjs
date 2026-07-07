@@ -85,6 +85,9 @@ module.exports = {
       kill_timeout: 10000,
       env: {
         PYTHONPATH: REPO_ROOT,
+        // bittensor >= 10 skips CLI parsing unless this is explicitly false,
+        // which would silently run with netuid/wallet/port defaults.
+        BT_NO_PARSE_CLI_ARGS: "false",
         ...passthrough,
       },
     },
