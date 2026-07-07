@@ -51,6 +51,9 @@ const minerArgs = [
   "--axon.port", env.POKER44_AXON_PORT || "8091",
   "--logging.debug",
 ];
+if (env.POKER44_CHAIN_ENDPOINT) {
+  minerArgs.push("--subtensor.chain_endpoint", env.POKER44_CHAIN_ENDPOINT);
+}
 const allowlist = (env.POKER44_ALLOWED_VALIDATOR_HOTKEYS || "")
   .split(/\s+/)
   .filter(Boolean);
